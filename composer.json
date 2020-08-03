@@ -1,0 +1,33 @@
+{
+    "name": "processmaker/laravel-nayra",
+    "description": "Laravel driver for Nayra",
+    "type": "library",
+    "license": "MIT",
+    "version": "0.0.1",
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+      "autoload": {
+        "psr-4": {
+            "ProcessMaker\\Laravel\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "David Callizaya",
+            "email": "david.callizaya@processmaker.com"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "ProcessMaker\\Laravel\\Providers\\PackageServiceProvider"
+            ],
+            "aliases": {
+                "Nayra": "ProcessMaker\\Laravel\\Providers\\Nayra"
+            }
+        }
+    },
+    "require": {
+        "processmaker/nayra": "dev-master"
+    }
+}
