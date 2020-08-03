@@ -75,3 +75,15 @@ Create a blade template [resources/views/request.blade.php]
 setInterval('location.reload()', 5000);
 </script>
 ```
+
+## Start your Laravel application
+Start the web service
+```
+php artisan serve
+```
+Start the queue service
+```
+php artisan queue:work
+```
+Open the started web server: http://127.0.0.1:8000/start
+
