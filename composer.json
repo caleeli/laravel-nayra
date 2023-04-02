@@ -3,7 +3,7 @@
     "description": "Laravel driver for Nayra",
     "type": "library",
     "license": "MIT",
-    "version": "0.0.1",
+    "version": "0.1.0",
     "minimum-stability": "dev",
     "prefer-stable": true,
       "autoload": {
@@ -28,6 +28,6 @@
         }
     },
     "require": {
-        "processmaker/nayra": "dev-master"
+        "processmaker/nayra": "^1.9.4"
     }
 }
