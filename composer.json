@@ -1,5 +1,5 @@
 {
-    "name": "processmaker/laravel-nayra",
+    "name": "caleeli/laravel-nayra",
     "description": "Laravel driver for Nayra",
     "type": "library",
     "license": "MIT",
