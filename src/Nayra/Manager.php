@@ -6,6 +6,9 @@ use ProcessMaker\Laravel\Contracts\RequestRepositoryInterface;
 use ProcessMaker\Laravel\Jobs\ScriptTaskJob;
 use ProcessMaker\Laravel\Models\Process;
 use ProcessMaker\Laravel\Repositories\InstanceRepository;
+use ProcessMaker\Nayra\Bpmn\Models\MessageEventDefinition;
+use ProcessMaker\Nayra\Contracts\Bpmn\ActivityInterface;
+use ProcessMaker\Nayra\Contracts\Bpmn\EntityInterface;
 use ProcessMaker\Nayra\Contracts\Bpmn\ProcessInterface;
 use ProcessMaker\Nayra\Contracts\Bpmn\ScriptTaskInterface;
 use ProcessMaker\Nayra\Contracts\Bpmn\TokenInterface;
@@ -245,11 +248,11 @@ class Manager
      *
      * @param string $instanceId
      * @param string $tokenId
-     * @param mixed $eventDefinition
+     * @param mixed $ref
      *
      * @return ExecutionInstanceInterface
      */
-    public function executeEvent($instanceId, $tokenId, $eventDefinition)
+    public function executeEvent($instanceId, $tokenId, $ref)
     {
         $this->prepare();
         // Load the execution data
@@ -258,12 +261,44 @@ class Manager
         // Process and instance
         $instance = $this->engine->loadExecutionInstance($instanceId, $this->bpmnRepository);
 
-        // Execute event
-        $token = $instance->getTokens()->findFirst(function ($token) use ($tokenId) {
-            return $token->getId() === $tokenId;
-        });
+        if (!$tokenId) {
+            $eventDefinition = $this->repository->createSignalEventDefinition();
+            $signal = $this->repository->createSignal();
+            $signal->setId($ref);
+            $eventDefinition->setPayload($signal);
+            $eventDefinition->setProperty('signalRef', $ref);
+            $this->engine->getEventDefinitionBus()->dispatchEventDefinition(
+                null,
+                $eventDefinition,
+                null
+            );
+        } else {
 
-        $token->getOwnerElement()->execute($eventDefinition, $instance);
+            // Execute event
+            $token = $instance->getTokens()->findFirst(function ($token) use ($tokenId) {
+                return $token->getId() === $tokenId;
+            });
+
+            $owner = $token->getOwnerElement();
+            if ($owner instanceof ActivityInterface) {
+                foreach ($owner->getBoundaryEvents() as $event) {
+                    $eventDefinitions = $event->getEventDefinitions();
+                    foreach ($eventDefinitions as $eventDefinition) {
+                        if ($eventDefinition instanceof MessageEventDefinition && $eventDefinition->getPayload()->getId() === $ref) {
+                            $event->execute($eventDefinition, $instance);
+                        }
+                    }
+                }
+            } else {
+                $eventDefinitions = $owner->getEventDefinitions();
+                foreach ($eventDefinitions as $eventDefinition) {
+                    if ($eventDefinition instanceof MessageEventDefinition && $eventDefinition->getPayload()->getId() === $ref) {
+                        $owner->execute($eventDefinition, $instance);
+                    }
+                }
+            }
+        }
+
         $this->engine->runToNextState();
         $this->saveState();
 
@@ -341,7 +376,22 @@ class Manager
      */
     public function saveProcessInstance(ExecutionInstanceInterface $instance)
     {
-        $this->instanceRepository->saveProcessInstance($instance, $this->bpmn);
+        $this->instanceRepository->saveProcessInstance($instance, $this->bpmn, $this->bpmnRepository);
         return $this;
+    }
+
+    public function getPerformerByTypeName(EntityInterface $node, $type, $name)
+    {
+        $performers = $node->getBpmnElement()->getElementsByTagNameNS('http://www.omg.org/spec/BPMN/20100524/MODEL', $type);
+        // find performer by name
+        foreach ($performers as $performer) {
+            if ($performer->getAttribute('name') === $name) {
+                $expression = $performer->getElementsByTagNameNS('http://www.omg.org/spec/BPMN/20100524/MODEL', 'formalExpression')->item(0);
+                $expression = $expression->nodeValue;
+                $self = $node;
+                return eval("return $expression;");
+            }
+        }
+        return null;
     }
 }

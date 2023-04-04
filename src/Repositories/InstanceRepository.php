@@ -12,7 +12,7 @@ use ProcessMaker\Nayra\Engine\ExecutionInstance;
 class InstanceRepository implements ExecutionInstanceRepositoryInterface
 {
     /**
-     * @var RequestRepositoryInterface
+     * @var RequestRepository
      */
     private $requestRepository;
 
@@ -30,19 +30,19 @@ class InstanceRepository implements ExecutionInstanceRepositoryInterface
      */
     public function loadExecutionInstanceByUid($uid, StorageInterface $storage)
     {
-        $data = $this->requestRepository->find($uid);
+        $processModel = $this->requestRepository->find($uid);
         $instance = $this->createExecutionInstance();
         $instance->setId($uid);
-        $process = $storage->getProcess($data->process_id);
+        $process = $storage->getProcess($processModel->process_id);
         $dataStore = $storage->getFactory()->createDataStore();
-        $dataStore->setData($data->data);
+        $dataStore->setData($processModel->data);
         $instance->setProcess($process);
         $instance->setDataStore($dataStore);
         $instance->setOwnerDocument($process->getOwnerDocument());
         $process->getTransitions($storage->getFactory());
 
         //Load tokens:
-        foreach ($data->tokens as $tokenInfo) {
+        foreach ($processModel->tokens as $tokenInfo) {
             $token = $storage->getFactory()->getTokenRepository()->createTokenInstance();
             $token->setProperties($tokenInfo);
             $element = $storage->getElementInstanceById($tokenInfo['element']);
@@ -59,32 +59,41 @@ class InstanceRepository implements ExecutionInstanceRepositoryInterface
     public function saveProcessInstance(ExecutionInstance $instance, $bpmn)
     {
         $id = $instance->getId();
-        $processData = $this->requestRepository->find($id);
-        if (!$processData) {
-            $processData = $this->requestRepository->make([
-                'process_id' => $instance->getProcess()->getId(),
+        $processModel = $this->requestRepository->find($id);
+        $process = $instance->getProcess();
+        if (!$processModel) {
+            $processModel = $this->requestRepository->make([
+                'process_id' => $process->getId(),
                 'bpmn' => $bpmn,
                 'status' => 'ACTIVE',
             ]);
         }
         $dataStore = $instance->getDataStore();
         $tokens = $instance->getTokens();
-        $mtokens = [];
+        $processModel->process_id = $process->getId();
+        $processModel->bpmn = $bpmn;
+        $processModel->tokens = self::dumpTokens($tokens);
+        $processModel->data = $dataStore->getData();
+        $this->requestRepository->save($processModel, $instance);
+        $instance->setId($processModel->getKey());
+    }
+
+    public static function dumpTokens($tokens)
+    {
+        $tokensDump = [];
         foreach ($tokens as $token) {
             $element = $token->getOwnerElement();
-            $mtokens[] = [
+            $tokensDump[] = [
                 'id' => $token->getId(),
                 'element' => $element->getId(),
                 'name' => $element->getName(),
                 'implementation' => $element->getProperty('implementation'),
+                'user' => $token->getProperty('user'),
                 'status' => $token->getStatus(),
                 'index' => $token->getIndex(),
             ];
         }
-        $processData->tokens = $mtokens;
-        $processData->data = $dataStore->getData();
-        $processData->save();
-        $instance->setId($processData->getKey());
+        return $tokensDump;
     }
 
     /**

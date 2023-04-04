@@ -2,16 +2,18 @@
 
 namespace ProcessMaker\Laravel\Repositories;
 
+use Illuminate\Support\Facades\Auth;
+use ProcessMaker\Laravel\Facades\Nayra;
 use ProcessMaker\Nayra\Bpmn\Collection;
 use ProcessMaker\Nayra\Bpmn\Models\Token;
 use ProcessMaker\Nayra\Contracts\Bpmn\ActivityInterface;
 use ProcessMaker\Nayra\Contracts\Bpmn\CatchEventInterface;
+use ProcessMaker\Nayra\Contracts\Bpmn\CollectionInterface;
+use ProcessMaker\Nayra\Contracts\Bpmn\EventBasedGatewayInterface;
 use ProcessMaker\Nayra\Contracts\Bpmn\GatewayInterface;
 use ProcessMaker\Nayra\Contracts\Bpmn\ThrowEventInterface;
 use ProcessMaker\Nayra\Contracts\Bpmn\TokenInterface;
 use ProcessMaker\Nayra\Contracts\Repositories\TokenRepositoryInterface;
-use ProcessMaker\Nayra\Contracts\Bpmn\CollectionInterface;
-use ProcessMaker\Nayra\Contracts\Bpmn\EventBasedGatewayInterface;
 
 /**
  * Token Repository.
@@ -66,6 +68,9 @@ class TokenRepository implements TokenRepositoryInterface
      */
     public function persistActivityActivated(ActivityInterface $activity, TokenInterface $token)
     {
+        // Evaluate user to assign
+        $user = Nayra::getPerformerByTypeName($activity, 'humanPerformer', 'user') ?: Auth::id();
+        $token->setProperty('user', $user);
     }
 
     /**
