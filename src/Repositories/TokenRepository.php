@@ -11,6 +11,7 @@ use ProcessMaker\Nayra\Contracts\Bpmn\CatchEventInterface;
 use ProcessMaker\Nayra\Contracts\Bpmn\CollectionInterface;
 use ProcessMaker\Nayra\Contracts\Bpmn\EventBasedGatewayInterface;
 use ProcessMaker\Nayra\Contracts\Bpmn\GatewayInterface;
+use ProcessMaker\Nayra\Contracts\Bpmn\ScriptTaskInterface;
 use ProcessMaker\Nayra\Contracts\Bpmn\ThrowEventInterface;
 use ProcessMaker\Nayra\Contracts\Bpmn\TokenInterface;
 use ProcessMaker\Nayra\Contracts\Repositories\TokenRepositoryInterface;
@@ -69,7 +70,8 @@ class TokenRepository implements TokenRepositoryInterface
     public function persistActivityActivated(ActivityInterface $activity, TokenInterface $token)
     {
         // Evaluate user to assign
-        $user = Nayra::getPerformerByTypeName($activity, 'humanPerformer', 'user') ?: Auth::id();
+        $data = $token->getInstance()->getDataStore()->getData();
+        $user = Nayra::getPerformerByTypeName($activity, 'humanPerformer', 'user', $data) ?: Auth::id();
         $token->setProperty('user', $user);
     }
 

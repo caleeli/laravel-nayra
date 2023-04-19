@@ -30,6 +30,11 @@ class Manager
     private $dispatcher;
 
     /**
+     * @var JobManagerInterface $jobManager
+     */
+    private $jobManager;
+
+    /**
      * @var Engine $engine
      */
     private $engine;
@@ -43,6 +48,11 @@ class Manager
      * @var InstanceRepository
      */
     private $instanceRepository;
+
+    /**
+     * @var Process $processData
+     */
+    private $processData;
 
     /**
      * @var string $bpmn
@@ -86,12 +96,17 @@ class Manager
     public function callProcess($processURL, $data = [])
     {
         $this->prepare();
-        $process = $this->loadProcess($processURL);
+        $this->loadProcess($processURL);
+        $process = $this->bpmnRepository->getElementsByTagName('process')->item(0)->getBpmnElementInstance();
         $dataStorage = $process->getRepository()->createDataStore();
         $dataStorage->setData($data);
         $instance = $process->call($dataStorage);
+        $instanceId = $this->getPerformerByTypeName($process, 'performer', 'identifier', $data) ?: uniqid();
+        $instance->setId($instanceId);
+
         $this->engine->runToNextState();
         $this->saveState();
+        $instance = $this->engine->loadExecutionInstance($instanceId, $this->bpmnRepository);
         return $instance;
     }
 
@@ -107,8 +122,9 @@ class Manager
     {
         $this->prepare();
         //Process
-        $process = $this->loadProcess($processURL);
+        $this->loadProcess($processURL);
         $event = $this->bpmnRepository->getStartEvent($eventId);
+        $process = $event->getOwnerProcess();
 
         //Create a new data store
         $dataStorage = $process->getRepository()->createDataStore();
@@ -117,10 +133,14 @@ class Manager
             $process,
             $dataStorage
         );
-        $event->start($instance);
+        $instanceId = $this->getPerformerByTypeName($process, 'performer', 'identifier', $data) ?: uniqid();
+        $instance->setId($instanceId);
 
+        $event->start($instance);
         $this->engine->runToNextState();
         $this->saveState();
+
+        $instance = $this->engine->loadExecutionInstance($instanceId, $this->bpmnRepository);
         return $instance;
     }
 
@@ -149,7 +169,9 @@ class Manager
         $this->prepare();
         // Load the execution data
         $this->processData = $this->loadData($this->bpmnRepository, $instanceId);
-
+        if (!$this->processData) {
+            return null;
+        }
         // Process and instance
         $instance = $this->engine->loadExecutionInstance($instanceId, $this->bpmnRepository);
 
@@ -174,8 +196,29 @@ class Manager
         // Process and instance
         $instance = $this->engine->loadExecutionInstance($instanceId, $this->bpmnRepository);
 
+        // Custom implementation dataOutput without connection act as a post processor for all the user tasks
+        $process = $instance->getProcess();
+        $ioSpecification = $process->getBpmnElement()->getElementsByTagNameNS(BpmnDocument::BPMN_MODEL, 'ioSpecification')->item(0);
+        $models = [];
+        if ($ioSpecification) {
+            $dataOutputs = $ioSpecification->getElementsByTagNameNS(BpmnDocument::BPMN_MODEL, 'dataOutput');
+            foreach($dataOutputs as $dataOutput) {
+                $varName = $dataOutput->getAttribute('name');
+                // @todo get Model name from itemDefinition and xsi
+                $varModel = $dataOutput->getAttribute('itemSubjectRef');
+                $models[$varName] = [
+                    'name' => $varName,
+                    'model' => $varModel,
+                ];
+            }
+        } else {
+            $models = [];
+        }
         // Update data
         foreach ($data as $key => $value) {
+            if (isset($models[$key])) {
+                $value = $this->postProcessValue($value, $models[$key]);
+            }
             $instance->getDataStore()->putData($key, $value);
         }
 
@@ -189,6 +232,7 @@ class Manager
         $this->saveState();
 
         //Return the instance id
+        $instance = $this->engine->loadExecutionInstance($instance->getId(), $this->bpmnRepository);
         return $instance;
     }
 
@@ -240,6 +284,7 @@ class Manager
         $this->saveState();
 
         // Return the instance id
+        $instance = $this->engine->loadExecutionInstance($instanceId, $this->bpmnRepository);
         return $instance;
     }
 
@@ -303,6 +348,7 @@ class Manager
         $this->saveState();
 
         // Return the instance id
+        $instance = $this->engine->loadExecutionInstance($instanceId, $this->bpmnRepository);
         return $instance;
     }
 
@@ -310,15 +356,11 @@ class Manager
      * Carga un proceso BPMN
      *
      * @param string $processName
-     *
-     * @return ProcessInterface
      */
     private function loadProcess($filename)
     {
-        $this->bpmnRepository->load($filename);
+        $this->bpmnRepository->load(base_path($filename));
         $this->bpmn = $filename;
-        $process = $this->bpmnRepository->getElementsByTagName('process')->item(0)->getBpmnElementInstance();
-        return $process;
     }
 
     /**
@@ -332,6 +374,9 @@ class Manager
     private function loadData(BpmnDocument $repository, $instanceId)
     {
         $processData = $this->requestRepository->find($instanceId);
+        if (!$processData) {
+            return $processData;
+        }
         $this->loadProcess($processData->bpmn);
         return $processData;
     }
@@ -346,7 +391,7 @@ class Manager
             ScriptTaskInterface::EVENT_SCRIPT_TASK_ACTIVATED,
             function (ScriptTaskInterface $scriptTask, TokenInterface $token) {
                 $this->saveProcessInstance($token->getInstance());
-                ScriptTaskJob::dispatch($token);
+                ScriptTaskJob::dispatchSync($token);
             }
         );
     }
@@ -380,18 +425,49 @@ class Manager
         return $this;
     }
 
-    public function getPerformerByTypeName(EntityInterface $node, $type, $name)
+    public function getPerformerByTypeName(EntityInterface $node, $type, $name, array $data)
     {
         $performers = $node->getBpmnElement()->getElementsByTagNameNS('http://www.omg.org/spec/BPMN/20100524/MODEL', $type);
         // find performer by name
         foreach ($performers as $performer) {
             if ($performer->getAttribute('name') === $name) {
                 $expression = $performer->getElementsByTagNameNS('http://www.omg.org/spec/BPMN/20100524/MODEL', 'formalExpression')->item(0);
-                $expression = $expression->nodeValue;
+                $code = $expression->nodeValue;
                 $self = $node;
-                return eval("return $expression;");
+                if (substr($code, 0, 5) === '<?php') {
+                    return eval("?>$code;");
+                } else {
+                    return eval("return $code;");
+                }
             }
         }
         return null;
+    }
+
+    public function getBpmn(): string
+    {
+        return $this->bpmn;
+    }
+
+    private function postProcessValue($value, $dataIO)
+    {
+        if ($dataIO['model']) {
+            $model = 'App\Models\\' . $dataIO['model'];
+            $id = $value['id'];
+            if ($id) {
+                $record = $model::find($id);
+                if ($record) {
+                    unset($value['id']);
+                    \Log::debug('update model ' . $id, $value);
+                    $record->update($value);
+                    $value = $record->toArray();
+                }
+            } else {
+                \Log::debug('create model', $value);
+                $record = $model::create($value);
+                $value = $record->toArray();
+            }
+        }
+        return $value;
     }
 }

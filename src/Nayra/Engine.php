@@ -3,6 +3,7 @@
 namespace ProcessMaker\Laravel\Nayra;
 
 use ProcessMaker\Nayra\Contracts\Engine\EngineInterface;
+use ProcessMaker\Nayra\Contracts\Engine\ExecutionInstanceInterface;
 use ProcessMaker\Nayra\Contracts\Engine\JobManagerInterface;
 use ProcessMaker\Nayra\Contracts\EventBusInterface;
 use ProcessMaker\Nayra\Contracts\RepositoryInterface;
@@ -82,5 +83,19 @@ class Engine implements EngineInterface
     public function clearInstances()
     {
         $this->executionInstances = [];
+    }
+
+    public function setInstance(ExecutionInstanceInterface $instance)
+    {
+        $id = $instance->getId();
+        // find the instance
+        foreach($this->executionInstances as $index => $i) {
+            if( $i->getId() === $id ) {
+                $this->executionInstances[$index] = $instance;
+                return;
+            }
+        }
+        // if not found, add it
+        $this->executionInstances[] = $instance;
     }
 }

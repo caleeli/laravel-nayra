@@ -58,9 +58,9 @@ class InstanceRepository implements ExecutionInstanceRepositoryInterface
      */
     public function saveProcessInstance(ExecutionInstance $instance, $bpmn)
     {
+        $process = $instance->getProcess();
         $id = $instance->getId();
         $processModel = $this->requestRepository->find($id);
-        $process = $instance->getProcess();
         if (!$processModel) {
             $processModel = $this->requestRepository->make([
                 'process_id' => $process->getId(),
@@ -70,12 +70,12 @@ class InstanceRepository implements ExecutionInstanceRepositoryInterface
         }
         $dataStore = $instance->getDataStore();
         $tokens = $instance->getTokens();
+        $processModel->id = $id;
         $processModel->process_id = $process->getId();
         $processModel->bpmn = $bpmn;
         $processModel->tokens = self::dumpTokens($tokens);
         $processModel->data = $dataStore->getData();
         $this->requestRepository->save($processModel, $instance);
-        $instance->setId($processModel->getKey());
     }
 
     public static function dumpTokens($tokens)
@@ -89,6 +89,7 @@ class InstanceRepository implements ExecutionInstanceRepositoryInterface
                 'name' => $element->getName(),
                 'implementation' => $element->getProperty('implementation'),
                 'user' => $token->getProperty('user'),
+                'error' => $token->getProperty('error'),
                 'status' => $token->getStatus(),
                 'index' => $token->getIndex(),
             ];

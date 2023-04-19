@@ -56,7 +56,7 @@ class ScriptTask extends ScriptTaskBase
     private function executeScript(TokenInterface $token, $script, $format)
     {
         try {
-            $response = $this->runCode($this->model, $script, $format);
+            $response = $this->runCode($token, $script, $format);
             if (is_array($response)) {
                 foreach($response as $key => $value) {
                     $token->getInstance()->getDataStore()->putData($key, $value);
@@ -65,6 +65,7 @@ class ScriptTask extends ScriptTaskBase
             return true;
         } catch (Exception $e) {
             Log::error($e->getMessage());
+            $token->setProperty('error', $e->getMessage());
             return false;
         }
     }
@@ -77,9 +78,9 @@ class ScriptTask extends ScriptTaskBase
      *
      * @return mixed
      */
-    private function runCode($model, $script, $format)
+    private function runCode(TokenInterface $token, $script, $format)
     {
-        return $this->scriptFactory($format)->run($this, $model, $script);
+        return $this->scriptFactory($format)->run($this, $token, $script);
     }
 
     /**

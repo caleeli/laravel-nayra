@@ -17,7 +17,8 @@ use ProcessMaker\Nayra\Contracts\Bpmn\EntityInterface;
  * @method static \ProcessMaker\Nayra\Contracts\Engine\ExecutionInstanceInterface getInstanceById(string $instanceId)
  * @method static \ProcessMaker\Nayra\Contracts\Engine\ExecutionInstanceInterface executeScript(string $instanceId, string $tokenId)
  * @method static \ProcessMaker\Nayra\Contracts\Engine\ExecutionInstanceInterface executeEvent(string $instanceId, string $tokenId, $ref)
- * @method static mixed getPerformerByTypeName(EntityInterface $node, string $type, string $name)
+ * @method static mixed getPerformerByTypeName(EntityInterface $node, string $type, string $name, array $data)
+ * @method static string getBpmn()
  */
 class Nayra extends Facade
 {
