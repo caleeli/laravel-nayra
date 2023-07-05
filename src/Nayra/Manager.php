@@ -2,6 +2,8 @@
 
 namespace ProcessMaker\Laravel\Nayra;
 
+use Exception;
+use PDOException;
 use ProcessMaker\Laravel\Contracts\RequestRepositoryInterface;
 use ProcessMaker\Laravel\Jobs\ScriptTaskJob;
 use ProcessMaker\Laravel\Models\Process;
@@ -9,7 +11,6 @@ use ProcessMaker\Laravel\Repositories\InstanceRepository;
 use ProcessMaker\Nayra\Bpmn\Models\MessageEventDefinition;
 use ProcessMaker\Nayra\Contracts\Bpmn\ActivityInterface;
 use ProcessMaker\Nayra\Contracts\Bpmn\EntityInterface;
-use ProcessMaker\Nayra\Contracts\Bpmn\ProcessInterface;
 use ProcessMaker\Nayra\Contracts\Bpmn\ScriptTaskInterface;
 use ProcessMaker\Nayra\Contracts\Bpmn\TokenInterface;
 use ProcessMaker\Nayra\Contracts\Engine\ExecutionInstanceInterface;
@@ -196,6 +197,14 @@ class Manager
         // Process and instance
         $instance = $this->engine->loadExecutionInstance($instanceId, $this->bpmnRepository);
 
+        // Get token
+        $token = $instance->getTokens()->findFirst(function ($token) use ($tokenId) {
+            return $token->getId() === $tokenId;
+        });
+        if (!$token) {
+            throw new Exception('Paso ya fue completado o no se encuentra activo');
+        }
+
         // Custom implementation dataOutput without connection act as a post processor for all the user tasks
         $process = $instance->getProcess();
         $ioSpecification = $process->getBpmnElement()->getElementsByTagNameNS(BpmnDocument::BPMN_MODEL, 'ioSpecification')->item(0);
@@ -223,9 +232,6 @@ class Manager
         }
 
         // Complete task
-        $token = $instance->getTokens()->findFirst(function ($token) use ($tokenId) {
-            return $token->getId() === $tokenId;
-        });
         $task = $this->bpmnRepository->getActivity($token->getProperty('element'));
         $task->complete($token);
         $this->engine->runToNextState();
@@ -361,6 +367,8 @@ class Manager
     {
         $this->bpmnRepository->load(base_path($filename));
         $this->bpmn = $filename;
+        // load all the processes to the engine
+        $this->engine->loadBpmnDocument($this->bpmnRepository);
     }
 
     /**
@@ -392,6 +400,13 @@ class Manager
             function (ScriptTaskInterface $scriptTask, TokenInterface $token) {
                 $this->saveProcessInstance($token->getInstance());
                 ScriptTaskJob::dispatchSync($token);
+            }
+        );
+        $this->dispatcher->listen(
+            ActivityInterface::EVENT_ACTIVITY_EXCEPTION,
+            function (ActivityInterface $task, TokenInterface $token) {
+                $token->getInstance()->setProperty('status', 'ERROR');
+                $token->getInstance()->setProperty('error', $token->getProperty('error'));
             }
         );
     }
@@ -449,23 +464,72 @@ class Manager
         return $this->bpmn;
     }
 
+    public function parseSqlErrorMessage(PDOException $exception): string
+    {
+        // Extract SQL error code from the error message
+        if (preg_match("/.*SQLSTATE\[\w+\]: .*: (\d+) .*/", $exception->getMessage(), $matches)) {
+            $errorCode = $matches[1];
+        } else {
+            // If we can't extract the SQL error code, use the SQLSTATE error code
+            $errorCode = $exception->getCode();
+        }
+
+        switch($errorCode) {
+            // MySQL & PostgreSQL: Column cannot be null
+            case '1048':
+            case '23502':
+                preg_match("/Column '(\w+)' cannot be null/", $exception->getMessage(), $columnMatch);
+                $columnName = $columnMatch[1] ?? 'desconocida';
+                return "Error al guardar, el campo '".$columnName."' es requerido.";
+
+                // MySQL & PostgreSQL: Duplicate entry
+            case '1062':
+            case '23505':
+                preg_match("/Duplicate entry .* for key '(.*)'/", $exception->getMessage(), $columnMatch);
+                $columnName = $columnMatch[1] ?? 'desconocida';
+                return "Error al guardar, el valor para el campo '".$columnName."' ya existe.";
+
+                // MySQL & PostgreSQL: Cannot add or update a child row: a foreign key constraint fails
+            case '1216':
+            case '1452':
+            case '23503':
+                return "Error al guardar, hay un problema con los datos relacionados.";
+
+                // MySQL & PostgreSQL: Cannot delete or update a parent row: a foreign key constraint fails
+            case '1217':
+            case '1451':
+            case '23504':
+                return "Error al eliminar o actualizar, otros datos dependen de estos.";
+
+                // Integrity constraint violation
+            case '23000':
+                return "Error de integridad de datos.";
+
+                // Other errors
+            default:
+                return "Error desconocido: " . $exception->getMessage();
+        }
+    }
+
     private function postProcessValue($value, $dataIO)
     {
-        if ($dataIO['model']) {
-            $model = 'App\Models\\' . $dataIO['model'];
-            $id = $value['id'];
-            if ($id) {
-                $record = $model::find($id);
-                if ($record) {
-                    unset($value['id']);
-                    \Log::debug('update model ' . $id, $value);
-                    $record->update($value);
+        if (!empty($dataIO['model'])) {
+            try {
+                $model = 'App\Models\\' . $dataIO['model'];
+                $id = $value['id'] ?? null;
+                if ($id) {
+                    $record = $model::find($id);
+                    if ($record) {
+                        unset($value['id']);
+                        $record->update($value);
+                        $value = $record->toArray();
+                    }
+                } else {
+                    $record = $model::create($value);
                     $value = $record->toArray();
                 }
-            } else {
-                \Log::debug('create model', $value);
-                $record = $model::create($value);
-                $value = $record->toArray();
+            } catch (PDOException $e) {
+                throw new Exception($this->parseSqlErrorMessage($e), $e->getCode(), $e);
             }
         }
         return $value;

@@ -19,6 +19,7 @@ use ProcessMaker\Nayra\Contracts\Bpmn\EntityInterface;
  * @method static \ProcessMaker\Nayra\Contracts\Engine\ExecutionInstanceInterface executeEvent(string $instanceId, string $tokenId, $ref)
  * @method static mixed getPerformerByTypeName(EntityInterface $node, string $type, string $name, array $data)
  * @method static string getBpmn()
+ * @method static string parseSqlErrorMessage(\PDOException $exception)
  */
 class Nayra extends Facade
 {

@@ -4,6 +4,8 @@ namespace ProcessMaker\Laravel\Nayra;
 
 use Exception;
 use Illuminate\Support\Facades\Log;
+use PDOException;
+use ProcessMaker\Laravel\Facades\Nayra;
 use ProcessMaker\Laravel\Models\Process as Model;
 use ProcessMaker\Laravel\Nayra\ScriptFormats\BaseScriptExecutor;
 use ProcessMaker\Laravel\Nayra\ScriptFormats\BashScript;
@@ -63,6 +65,10 @@ class ScriptTask extends ScriptTaskBase
                 }
             }
             return true;
+        } catch (PDOException $e) {
+            Log::error($e->getMessage());
+            $token->setProperty('error', Nayra::parseSqlErrorMessage($e));
+            return false;
         } catch (Exception $e) {
             Log::error($e->getMessage());
             $token->setProperty('error', $e->getMessage());

@@ -3,6 +3,7 @@
 namespace ProcessMaker\Laravel\Repositories;
 
 use ProcessMaker\Laravel\Contracts\RequestRepositoryInterface;
+use ProcessMaker\Laravel\Facades\Nayra;
 use ProcessMaker\Nayra\Contracts\Bpmn\ParticipantInterface;
 use ProcessMaker\Nayra\Contracts\Engine\ExecutionInstanceInterface;
 use ProcessMaker\Nayra\Contracts\Repositories\ExecutionInstanceRepositoryInterface;
@@ -116,6 +117,11 @@ class InstanceRepository implements ExecutionInstanceRepositoryInterface
      */
     public function persistInstanceCreated(ExecutionInstanceInterface $instance)
     {
+        $process = $instance->getProcess();
+        $data = $instance->getDataStore()->getData();
+        $instanceId = Nayra::getPerformerByTypeName($process, 'performer', 'identifier', $data) ?: uniqid();
+        $instance->setId($instanceId);
+        \Log::debug('persistInstanceCreated ' . $instance->getId());
     }
 
     /**
@@ -129,7 +135,9 @@ class InstanceRepository implements ExecutionInstanceRepositoryInterface
     {
         $request = $this->requestRepository->find($instance->getId());
         $request->status = 'COMPLETED';
-        $request->save();
+        $id = $instance->getId();
+        $processModel = $this->requestRepository->find($id);
+        $this->requestRepository->save($processModel, $instance);
     }
 
     /**
