@@ -4,6 +4,7 @@ namespace ProcessMaker\Laravel\Repositories;
 
 use Illuminate\Support\Facades\Redis;
 use ProcessMaker\Laravel\Contracts\RequestRepositoryInterface;
+use ProcessMaker\Laravel\Facades\Nayra;
 use ProcessMaker\Laravel\Models\Request;
 use ProcessMaker\Nayra\Engine\ExecutionInstance;
 
@@ -28,7 +29,11 @@ class RequestRepository implements RequestRepositoryInterface
 
     public function save(Request $request, ExecutionInstance $instance)
     {
-        $id = $instance->getId();
+        $process = $instance->getProcess();
+        $data = $instance->getDataStore()->getData();
+        $id = Nayra::getPerformerByTypeName($process, 'performer', 'identifier', $data) ?: uniqid();
+        $request->id = $id;
+        $instance->setId($id);
         $sessionOnlyProcess = substr($id, 0, 1) === '_';
         if ($sessionOnlyProcess) {
             Redis::set("request:{$id}", serialize($request));
