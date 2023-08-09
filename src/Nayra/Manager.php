@@ -243,6 +243,67 @@ class Manager
     }
 
     /**
+     * Update a task data
+     *
+     * @param string $instanceId
+     * @param string $tokenId
+     * @param array $data
+     *
+     * @return ExecutionInstanceInterface
+     */
+    public function updateTask($instanceId, $tokenId, $data = [])
+    {
+        $this->prepare();
+        // Load the execution data
+        $this->loadData($this->bpmnRepository, $instanceId);
+
+        // Process and instance
+        $instance = $this->engine->loadExecutionInstance($instanceId, $this->bpmnRepository);
+
+        // Get token
+        $token = $instance->getTokens()->findFirst(function ($token) use ($tokenId) {
+            return $token->getId() === $tokenId;
+        });
+        if (!$token) {
+            throw new Exception('Paso ya fue completado o no se encuentra activo');
+        }
+
+        // Custom implementation dataOutput without connection act as a post processor for all the user tasks
+        $process = $instance->getProcess();
+        $ioSpecification = $process->getBpmnElement()->getElementsByTagNameNS(BpmnDocument::BPMN_MODEL, 'ioSpecification')->item(0);
+        $models = [];
+        if ($ioSpecification) {
+            $dataOutputs = $ioSpecification->getElementsByTagNameNS(BpmnDocument::BPMN_MODEL, 'dataOutput');
+            foreach($dataOutputs as $dataOutput) {
+                $varName = $dataOutput->getAttribute('name');
+                // @todo get Model name from itemDefinition and xsi
+                $varModel = $dataOutput->getAttribute('itemSubjectRef');
+                $models[$varName] = [
+                    'name' => $varName,
+                    'model' => $varModel,
+                ];
+            }
+        } else {
+            $models = [];
+        }
+        // Update data
+        foreach ($data as $key => $value) {
+            if (isset($models[$key])) {
+                $value = $this->postProcessValue($value, $models[$key]);
+            }
+            $instance->getDataStore()->putData($key, $value);
+        }
+
+        // Run to next state with updated data
+        $this->engine->runToNextState();
+        $this->saveState();
+
+        //Return the instance id
+        $instance = $this->engine->loadExecutionInstance($instance->getId(), $this->bpmnRepository);
+        return $instance;
+    }
+
+    /**
      * Cancela un proceso por id de instancia.
      *
      * @param string $instanceId
@@ -529,7 +590,8 @@ class Manager
                     $value = $record->toArray();
                 }
             } catch (PDOException $e) {
-                throw new Exception($this->parseSqlErrorMessage($e), $e->getCode(), $e);
+                $code = is_int($e->getCode()) ? $e->getCode() : 0;
+                throw new Exception($this->parseSqlErrorMessage($e), $code, $e);
             }
         }
         return $value;
