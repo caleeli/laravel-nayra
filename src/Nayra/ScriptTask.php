@@ -10,6 +10,7 @@ use ProcessMaker\Laravel\Models\Process as Model;
 use ProcessMaker\Laravel\Nayra\ScriptFormats\BaseScriptExecutor;
 use ProcessMaker\Laravel\Nayra\ScriptFormats\BashScript;
 use ProcessMaker\Laravel\Nayra\ScriptFormats\PhpScript;
+use ProcessMaker\Nayra\Bpmn\Models\Error;
 use ProcessMaker\Nayra\Bpmn\Models\ScriptTask as ScriptTaskBase;
 use ProcessMaker\Nayra\Contracts\Bpmn\ActivityInterface;
 use ProcessMaker\Nayra\Contracts\Bpmn\TokenInterface;
@@ -67,11 +68,15 @@ class ScriptTask extends ScriptTaskBase
             return true;
         } catch (PDOException $e) {
             Log::error($e->getMessage());
-            $token->setProperty('error', Nayra::parseSqlErrorMessage($e));
+            $bpmnError = new Error();
+            $bpmnError->setName(Nayra::parseSqlErrorMessage($e));
+            $token->setProperty('error', $bpmnError);
             return false;
         } catch (Exception $e) {
             Log::error($e->getMessage());
-            $token->setProperty('error', $e->getMessage());
+            $bpmnError = new Error();
+            $bpmnError->setName($e->getMessage());
+            $token->setProperty('error', $bpmnError);
             return false;
         }
     }
